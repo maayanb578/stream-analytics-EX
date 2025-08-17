@@ -5,10 +5,17 @@ Video Analytics Pipeline System
 A multi-process video analytics system with three components:
 1. Streamer: Reads video frames from file
 2. Detector: Performs motion detection on frames  
-3. Presenter: Displays frames with detections and timestamp
+3. Presenter: Displays frames with detections, blur effects, and timestamp
+
+Features:
+- Real-time motion detection using OpenCV
+- Configurable Gaussian blur on detected motion areas
+- Multi-intensity blur settings (light, medium, heavy)
+- Real-time timestamp and statistics overlay
+- Multi-process architecture for optimal performance
 
 Usage:
-    python video_analytics_pipeline.py <video_path>
+    python video_analytics_pipeline.py <video_path> [options]
 """
 
 import multiprocessing as mp
@@ -28,8 +35,10 @@ class VideoAnalyticsPipeline:
     Main pipeline orchestrator that coordinates all components.
     """
     
-    def __init__(self, video_path: str):
+    def __init__(self, video_path: str, enable_blur: bool = True, blur_intensity: str = "medium"):
         self.video_path = video_path
+        self.enable_blur = enable_blur
+        self.blur_intensity = blur_intensity
         self.processes = []
         self.queues = {}
         self.running = False
@@ -84,12 +93,12 @@ class VideoAnalyticsPipeline:
             # Start Presenter process
             presenter_process = mp.Process(
                 target=run_presenter,
-                args=(self.queues['detector_to_presenter'],),
+                args=(self.queues['detector_to_presenter'], self.enable_blur, self.blur_intensity),
                 name="Presenter"
             )
             presenter_process.start()
             self.processes.append(presenter_process)
-            print("Pipeline: Presenter process started")
+            print(f"Pipeline: Presenter process started (Blur: {'ON' if self.enable_blur else 'OFF'}, Intensity: {self.blur_intensity})")
             
             self.running = True
             print("Pipeline: All components started successfully")
@@ -182,21 +191,54 @@ def signal_handler(signum, frame):
 
 def main():
     """Main entry point."""
+    import argparse
+    
     # Setup signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    # Check command line arguments
-    if len(sys.argv) < 2:
-        print("Usage: python video_analytics_pipeline.py <video_path>")
-        print("\nExample:")
-        print("  python video_analytics_pipeline.py '/path/to/video.mp4'")
-        sys.exit(1)
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description="Video Analytics Pipeline System with Motion Detection and Blur",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python video_analytics_pipeline.py video.mp4
+  python video_analytics_pipeline.py video.mp4 --no-blur
+  python video_analytics_pipeline.py video.mp4 --blur-intensity heavy
+        """
+    )
     
-    video_path = sys.argv[1]
+    parser.add_argument(
+        "video_path",
+        help="Path to the video file to process"
+    )
+    
+    parser.add_argument(
+        "--no-blur",
+        action="store_true",
+        help="Disable blur effect on detected motion areas"
+    )
+    
+    parser.add_argument(
+        "--blur-intensity",
+        choices=["light", "medium", "heavy"],
+        default="medium",
+        help="Blur intensity level (default: medium)"
+    )
+    
+    args = parser.parse_args()
+    
+    # Configure blur settings
+    enable_blur = not args.no_blur
+    blur_intensity = args.blur_intensity
+    
+    print(f"Blur Configuration: {'Enabled' if enable_blur else 'Disabled'}")
+    if enable_blur:
+        print(f"Blur Intensity: {blur_intensity}")
     
     # Create and run pipeline
-    pipeline = VideoAnalyticsPipeline(video_path)
+    pipeline = VideoAnalyticsPipeline(args.video_path, enable_blur, blur_intensity)
     success = pipeline.run()
     
     sys.exit(0 if success else 1)

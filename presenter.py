@@ -11,19 +11,79 @@ class Presenter:
     Presenter component that draws detections and displays video frames.
     """
     
-    def __init__(self, input_queue: mp.Queue):
+    def __init__(self, input_queue: mp.Queue, enable_blur: bool = True, blur_intensity: str = "medium"):
         self.input_queue = input_queue
         self.frame_count = 0
         self.window_name = "Video Analytics System"
+        self.enable_blur = enable_blur
+        self.blur_intensity = blur_intensity
+        
+        # Blur intensity settings
+        self.blur_settings = {
+            "light": {"min_kernel": 9, "max_kernel": 21, "size_factor": 15},
+            "medium": {"min_kernel": 15, "max_kernel": 35, "size_factor": 10},
+            "heavy": {"min_kernel": 25, "max_kernel": 51, "size_factor": 8}
+        }
+    
+    def blur_detections(self, frame: np.ndarray, detections: List[Dict[str, Any]]) -> np.ndarray:
+        """
+        Apply blur to detected motion areas in the frame.
+        Uses Gaussian blur for efficient and smooth blurring.
+        """
+        # Skip blurring if disabled
+        if not self.enable_blur or not detections:
+            return frame
+        
+        # Create a copy of the frame to blur
+        blurred_frame = frame.copy()
+        
+        # Get blur settings for current intensity
+        settings = self.blur_settings.get(self.blur_intensity, self.blur_settings["medium"])
+        
+        for detection in detections:
+            bbox = detection['bbox']
+            x, y, w, h = bbox
+            
+            # Ensure bounding box is within frame boundaries
+            frame_height, frame_width = frame.shape[:2]
+            x = max(0, min(x, frame_width - 1))
+            y = max(0, min(y, frame_height - 1))
+            w = max(1, min(w, frame_width - x))
+            h = max(1, min(h, frame_height - y))
+            
+            # Skip if ROI is too small
+            if w < 5 or h < 5:
+                continue
+            
+            # Extract the region of interest (ROI)
+            roi = blurred_frame[y:y+h, x:x+w]
+            
+            # Calculate adaptive kernel size based on detection size and intensity
+            kernel_size = max(settings["min_kernel"], 
+                            min(settings["max_kernel"], 
+                                max(w, h) // settings["size_factor"]))
+            
+            # Ensure odd kernel size
+            if kernel_size % 2 == 0:
+                kernel_size += 1
+            
+            # Apply Gaussian blur to the ROI
+            blurred_roi = cv2.GaussianBlur(roi, (kernel_size, kernel_size), 0)
+            
+            # Replace the original ROI with the blurred version
+            blurred_frame[y:y+h, x:x+w] = blurred_roi
+        
+        return blurred_frame
     
     def draw_detections(self, frame: np.ndarray, detections: List[Dict[str, Any]]) -> np.ndarray:
         """
         Draw detection bounding boxes and information on the frame.
+        First applies blur to detected areas, then draws overlay information.
         """
-        # Create a copy of the frame to draw on
-        display_frame = frame.copy()
+        # First, blur the detected areas
+        display_frame = self.blur_detections(frame, detections)
         
-        # Draw each detection
+        # Then draw detection overlays
         for i, detection in enumerate(detections):
             bbox = detection['bbox']
             area = detection['area']
@@ -38,7 +98,8 @@ class Presenter:
             cv2.circle(display_frame, center, 5, (0, 0, 255), -1)
             
             # Add detection info text
-            info_text = f"Motion {i+1}: Area={int(area)}"
+            blur_status = f"[{self.blur_intensity.upper()} BLUR]" if self.enable_blur else "[NO BLUR]"
+            info_text = f"Motion {i+1}: Area={int(area)} {blur_status}"
             cv2.putText(display_frame, info_text, (x, y - 10), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         
@@ -72,8 +133,9 @@ class Presenter:
         """
         Add statistics information to the frame.
         """
-        # Add detection count
-        stats_text = f"Detections: {detection_count} | Frame: {frame_number}"
+        # Add detection count and blur status
+        blur_info = f"Blur: {self.blur_intensity.upper()}" if self.enable_blur else "Blur: OFF"
+        stats_text = f"Detections: {detection_count} | Frame: {frame_number} | {blur_info}"
         
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.6
@@ -150,9 +212,9 @@ class Presenter:
         print("Presenter: Cleanup completed")
 
 
-def run_presenter(input_queue: mp.Queue):
+def run_presenter(input_queue: mp.Queue, enable_blur: bool = True, blur_intensity: str = "medium"):
     """Function to run presenter in a separate process."""
-    presenter = Presenter(input_queue)
+    presenter = Presenter(input_queue, enable_blur, blur_intensity)
     presenter.display_frames()
 
 
