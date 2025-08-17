@@ -44,11 +44,19 @@ class Streamer:
                 ret, frame = self.cap.read()
                 
                 if not ret:
-                    print("Streamer: End of video or failed to read frame")
+                    print("Streamer: End of video reached")
+                    # Send end-of-video signal
+                    end_message = {
+                        'type': 'END_OF_VIDEO',
+                        'total_frames': frame_number,
+                        'timestamp': time.time()
+                    }
+                    self.output_queue.put(end_message)
                     break
                 
                 # Create message with frame and metadata
                 message = {
+                    'type': 'FRAME',
                     'frame': frame,
                     'frame_number': frame_number,
                     'timestamp': time.time()
@@ -66,10 +74,16 @@ class Streamer:
                 
         except KeyboardInterrupt:
             print("Streamer: Interrupted by user")
+            # Send interruption signal
+            interrupt_message = {
+                'type': 'INTERRUPTED',
+                'total_frames': frame_number,
+                'timestamp': time.time()
+            }
+            self.output_queue.put(interrupt_message)
         finally:
-            # Send end signal
-            self.output_queue.put(None)
             self.cleanup()
+            print(f"Streamer: Completed processing {frame_number} frames")
     
     def cleanup(self):
         """Clean up resources."""

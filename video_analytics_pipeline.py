@@ -113,17 +113,37 @@ class VideoAnalyticsPipeline:
     def monitor_processes(self):
         """Monitor all processes and handle completion/failures."""
         print("Pipeline: Monitoring processes (Press Ctrl+C to stop)")
+        print("Pipeline: System will automatically shutdown when video ends")
         
         try:
             while self.running:
-                # Check if any process has terminated
+                # Check process status
+                terminated_processes = []
                 for process in self.processes:
                     if not process.is_alive():
-                        print(f"Pipeline: Process {process.name} has terminated")
-                        self.running = False
-                        break
+                        terminated_processes.append(process)
                 
-                time.sleep(1)  # Check every second
+                if terminated_processes:
+                    # Check exit codes to determine if it's normal completion or error
+                    normal_completion = True
+                    for process in terminated_processes:
+                        exit_code = process.exitcode
+                        if exit_code != 0:
+                            print(f"Pipeline: Process {process.name} terminated with exit code {exit_code}")
+                            normal_completion = False
+                        else:
+                            print(f"Pipeline: Process {process.name} completed normally")
+                    
+                    if normal_completion:
+                        print("Pipeline: All processes completed normally - Video ended")
+                        print("Pipeline: Initiating automatic shutdown...")
+                    else:
+                        print("Pipeline: One or more processes terminated unexpectedly")
+                    
+                    self.running = False
+                    break
+                
+                time.sleep(0.5)  # Check twice per second for faster response
                 
         except KeyboardInterrupt:
             print("\nPipeline: Received interrupt signal")
@@ -133,9 +153,13 @@ class VideoAnalyticsPipeline:
         """Clean up all processes and resources."""
         print("Pipeline: Starting cleanup...")
         
-        # Terminate all processes
-        for process in self.processes:
-            if process.is_alive():
+        # Check which processes are still alive
+        alive_processes = [p for p in self.processes if p.is_alive()]
+        
+        if alive_processes:
+            print(f"Pipeline: Terminating {len(alive_processes)} remaining processes...")
+            # Terminate all running processes
+            for process in alive_processes:
                 print(f"Pipeline: Terminating {process.name}")
                 process.terminate()
                 process.join(timeout=5)  # Wait up to 5 seconds
@@ -145,10 +169,15 @@ class VideoAnalyticsPipeline:
                     print(f"Pipeline: Force killing {process.name}")
                     process.kill()
                     process.join()
+        else:
+            print("Pipeline: All processes already terminated")
         
         # Clear queues
         for queue_name, queue in self.queues.items():
             try:
+                queue_size = queue.qsize()
+                if queue_size > 0:
+                    print(f"Pipeline: Clearing {queue_size} messages from {queue_name}")
                 while not queue.empty():
                     queue.get_nowait()
             except:
@@ -158,9 +187,16 @@ class VideoAnalyticsPipeline:
     
     def run(self):
         """Main pipeline execution method."""
+        start_time = time.time()
+        
         print("="*60)
         print("Video Analytics Pipeline System")
         print("="*60)
+        print("Features:")
+        print("- Automatic shutdown when video ends")
+        print("- Real-time motion detection with blur effects")
+        print("- Multi-process architecture for optimal performance")
+        print("-" * 60)
         
         # Validate inputs
         if not self.validate_video_file():
@@ -176,10 +212,16 @@ class VideoAnalyticsPipeline:
         # Monitor execution
         self.monitor_processes()
         
+        # Calculate runtime
+        end_time = time.time()
+        runtime = end_time - start_time
+        
         # Cleanup
         self.cleanup()
         
-        print("Pipeline: Execution completed")
+        print("-" * 60)
+        print(f"Pipeline: Execution completed in {runtime:.2f} seconds")
+        print("="*60)
         return True
 
 
@@ -199,13 +241,17 @@ def main():
     
     # Parse command line arguments
     parser = argparse.ArgumentParser(
-        description="Video Analytics Pipeline System with Motion Detection and Blur",
+        description="Video Analytics Pipeline System with Motion Detection and Blur\n" +
+                   "Features automatic shutdown when video ends.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   python video_analytics_pipeline.py video.mp4
   python video_analytics_pipeline.py video.mp4 --no-blur
   python video_analytics_pipeline.py video.mp4 --blur-intensity heavy
+
+The system will automatically shutdown when the video file ends.
+Press Ctrl+C to stop manually or ESC/'q' in the video window.
         """
     )
     

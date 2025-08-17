@@ -2,6 +2,7 @@ import cv2
 import imutils
 import multiprocessing as mp
 import numpy as np
+import time
 from typing import List, Tuple, Optional, Dict, Any
 
 
@@ -75,40 +76,64 @@ class Detector:
                 # Get message from streamer
                 message = self.input_queue.get()
                 
-                # Check for end signal
-                if message is None:
-                    print("Detector: Received end signal")
+                # Check message type
+                if message.get('type') == 'END_OF_VIDEO':
+                    print(f"Detector: Video ended after {message['total_frames']} frames")
+                    # Forward end signal to presenter
+                    self.output_queue.put(message)
                     break
-                
-                frame = message['frame']
-                frame_number = message['frame_number']
-                timestamp = message['timestamp']
-                
-                # Perform motion detection
-                detections = self.detect_motion(frame)
-                
-                # Create output message
-                output_message = {
-                    'frame': frame,
-                    'frame_number': frame_number,
-                    'timestamp': timestamp,
-                    'detections': detections,
-                    'detection_count': len(detections)
-                }
-                
-                # Send to presenter
-                self.output_queue.put(output_message)
-                
-                self.frame_count += 1
-                if self.frame_count % 100 == 0:
-                    print(f"Detector: Processed {self.frame_count} frames")
+                elif message.get('type') == 'INTERRUPTED':
+                    print("Detector: Received interruption signal")
+                    # Forward interruption signal to presenter
+                    self.output_queue.put(message)
+                    break
+                elif message.get('type') == 'FRAME':
+                    # Process normal frame
+                    frame = message['frame']
+                    frame_number = message['frame_number']
+                    timestamp = message['timestamp']
+                    
+                    # Perform motion detection
+                    detections = self.detect_motion(frame)
+                    
+                    # Create output message
+                    output_message = {
+                        'type': 'PROCESSED_FRAME',
+                        'frame': frame,
+                        'frame_number': frame_number,
+                        'timestamp': timestamp,
+                        'detections': detections,
+                        'detection_count': len(detections)
+                    }
+                    
+                    # Send to presenter
+                    self.output_queue.put(output_message)
+                    
+                    self.frame_count += 1
+                    if self.frame_count % 100 == 0:
+                        print(f"Detector: Processed {self.frame_count} frames")
+                else:
+                    # Handle legacy None message or unknown types
+                    print("Detector: Received unknown or legacy end signal")
+                    end_message = {
+                        'type': 'END_OF_VIDEO',
+                        'total_frames': self.frame_count,
+                        'timestamp': time.time()
+                    }
+                    self.output_queue.put(end_message)
+                    break
                 
         except KeyboardInterrupt:
             print("Detector: Interrupted by user")
+            # Send interruption signal to presenter
+            interrupt_message = {
+                'type': 'INTERRUPTED',
+                'total_frames': self.frame_count,
+                'timestamp': time.time()
+            }
+            self.output_queue.put(interrupt_message)
         finally:
-            # Send end signal to presenter
-            self.output_queue.put(None)
-            print("Detector: Processing completed")
+            print(f"Detector: Completed processing {self.frame_count} frames")
 
 
 def run_detector(input_queue: mp.Queue, output_queue: mp.Queue):

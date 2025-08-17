@@ -164,47 +164,65 @@ class Presenter:
         # Create window
         cv2.namedWindow(self.window_name, cv2.WINDOW_AUTOSIZE)
         
+        video_ended_normally = False
+        
         try:
             while True:
                 # Get message from detector
                 message = self.input_queue.get()
                 
-                # Check for end signal
-                if message is None:
-                    print("Presenter: Received end signal")
+                # Check message type
+                if message.get('type') == 'END_OF_VIDEO':
+                    print(f"Presenter: Video completed normally after {message['total_frames']} frames")
+                    video_ended_normally = True
                     break
-                
-                frame = message['frame']
-                detections = message['detections']
-                detection_count = message['detection_count']
-                frame_number = message['frame_number']
-                
-                # Draw detections on frame
-                display_frame = self.draw_detections(frame, detections)
-                
-                # Add timestamp
-                display_frame = self.add_timestamp(display_frame)
-                
-                # Add statistics
-                display_frame = self.add_statistics(display_frame, detection_count, frame_number)
-                
-                # Display the frame
-                cv2.imshow(self.window_name, display_frame)
-                
-                self.frame_count += 1
-                if self.frame_count % 100 == 0:
-                    print(f"Presenter: Displayed {self.frame_count} frames")
-                
-                # Check for quit key (ESC or 'q')
-                key = cv2.waitKey(1) & 0xFF
-                if key == 27 or key == ord('q'):  # ESC or 'q' key
-                    print("Presenter: User requested quit")
+                elif message.get('type') == 'INTERRUPTED':
+                    print("Presenter: Received interruption signal")
+                    break
+                elif message.get('type') == 'PROCESSED_FRAME':
+                    # Process normal frame
+                    frame = message['frame']
+                    detections = message['detections']
+                    detection_count = message['detection_count']
+                    frame_number = message['frame_number']
+                    
+                    # Draw detections on frame
+                    display_frame = self.draw_detections(frame, detections)
+                    
+                    # Add timestamp
+                    display_frame = self.add_timestamp(display_frame)
+                    
+                    # Add statistics
+                    display_frame = self.add_statistics(display_frame, detection_count, frame_number)
+                    
+                    # Display the frame
+                    cv2.imshow(self.window_name, display_frame)
+                    
+                    self.frame_count += 1
+                    if self.frame_count % 100 == 0:
+                        print(f"Presenter: Displayed {self.frame_count} frames")
+                    
+                    # Check for quit key (ESC or 'q')
+                    key = cv2.waitKey(1) & 0xFF
+                    if key == 27 or key == ord('q'):  # ESC or 'q' key
+                        print("Presenter: User requested quit")
+                        break
+                else:
+                    # Handle legacy None message or unknown types
+                    print("Presenter: Received unknown or legacy end signal")
                     break
                 
         except KeyboardInterrupt:
             print("Presenter: Interrupted by user")
         finally:
+            if video_ended_normally:
+                print("Presenter: Video processing completed successfully")
+                # Give user a moment to see the final frame
+                print("Presenter: Press any key to close...")
+                cv2.waitKey(3000)  # Wait 3 seconds or until key press
+            
             self.cleanup()
+            print(f"Presenter: Displayed {self.frame_count} total frames")
     
     def cleanup(self):
         """Clean up resources."""
